@@ -1,0 +1,31 @@
+package:
+  name: rimraf
+  version: 5.0.5
+  epoch: 6
+  description: The UNIX command rm -rf for node.
+  copyright:
+    - license: ISC
+  dependencies:
+    runtime:
+      - nodejs
+
+environment:
+  contents:
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - build-base
+      - nodejs
+
+pipeline:
+  - name: npm install
+    runs: |
+      npm install -g ${{package.name}}@${{package.version}} -prefix ${{targets.destdir}}/usr --production
+
+update:
+  enabled: true
+  github:
+    identifier: isaacs/rimraf
+    strip-prefix: v
+    use-tag: true
+    tag-filter: v
