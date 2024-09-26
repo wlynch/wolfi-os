@@ -1,0 +1,98 @@
+package:
+  name: emissary
+  version: 3.9.1
+  epoch: 0
+  description: "open source Kubernetes-native API gateway for microservices built on the Envoy Proxy"
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - datawire-envoy-privileged
+      - git
+      - python3
+
+environment:
+  contents:
+    packages:
+      - iproute2
+      - libcap-utils
+      - py3-pip
+      - python3
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/emissary-ingress/emissary
+      tag: v${{package.version}}
+      expected-commit: 6e2ca35c11d124da26df8dd029c33954960b15ae
+
+  # Go binaries
+  - uses: go/build
+    with:
+      packages: ./cmd/apiext
+      output: apiext
+
+  - uses: go/build
+    with:
+      packages: ./cmd/busyambassador
+      output: busyambassador
+
+  - uses: go/build
+    with:
+      packages: ./cmd/capabilities_wrapper
+      output: wrapper
+
+  - name: wrapper-setcap
+    # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/build-aux/Dockerfile#L129-L137
+    runs: |
+      setcap cap_net_bind_service=p ${{targets.contextdir}}/usr/bin/wrapper
+
+  - uses: go/build
+    with:
+      packages: ./cmd/kubestatus
+      output: kubestatus
+
+  - name: Python Build
+    runs: |
+      make python/ambassador.version
+
+      # Install Python dependencies
+      python3 -m venv venv
+      venv/bin/python3 -m pip install --upgrade pip
+      ./venv/bin/pip install -r python/requirements.txt --root=${{targets.contextdir}} --prefix=/usr
+      ./venv/bin/pip install -r python/requirements-dev.txt --root=${{targets.contextdir}} --prefix=/usr
+      ./venv/bin/pip install -e python --root=${{targets.contextdir}} --prefix=/usr
+
+      # Install Emissary Python package
+      cd python
+      python setup.py install --prefix=/usr --root="${{targets.contextdir}}"
+      cp -a templates ${{targets.contextdir}}/usr/lib/python3.12/site-packages/templates
+
+      cp -p entrypoint.sh ${{targets.contextdir}}/usr/bin/entrypoint.sh
+      chmod +x ${{targets.contextdir}}/usr/bin/entrypoint.sh
+
+update:
+  enabled: true
+  github:
+    identifier: emissary-ingress/emissary
+    strip-prefix: v
+    use-tag: true
+  ignore-regex-patterns:
+    - -rc.*
+    - -dev.*
+    - ^chart/
+
+test:
+  environment:
+    contents:
+      packages:
+        - curl
+  pipeline:
+    - uses: test/kwok/cluster
+    - runs: |
+        /usr/bin/entrypoint.sh &
+
+        # Wait for server to come up
+        sleep 10
+
+        curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
