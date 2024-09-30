@@ -54,8 +54,6 @@ pipeline:
 
   - name: Python Build
     runs: |
-      make python/ambassador.version
-
       # Recommendation is to use the host pip instead of using venv.
       # Pip will complain about being run as root - this disables that warning.
       export PIP_ROOT_USER_ACTION=ignore
@@ -69,9 +67,18 @@ pipeline:
       # the necessary packages into the target directory.
       pip install --root ${{targets.contextdir}} --ignore-installed -r python/requirements.txt
 
+      # Generate version file - this static file is read by programs to provide version information in logs.
+      # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/python/ambassador/VERSION.py#L26
+      make python/ambassador.version
+      cp -p python/ambassador.version ${{targets.contextdir}}/usr/lib/python3.12/site-packages
+
       # Install Emissary Python package
       cd python
       python setup.py install --prefix=/usr --root="${{targets.contextdir}}"
+
+      # Install templates - this is not a python package, so it's not installed by the steps above.
+      # This contains a set of HTML templates used by the Python code, but is read relative to the module.
+      # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/python/ambassador_diag/diagd.py#L603
       cp -a templates ${{targets.contextdir}}/usr/lib/python3.12/site-packages/templates
 
       cp -p entrypoint.sh ${{targets.contextdir}}/usr/bin/entrypoint.sh
