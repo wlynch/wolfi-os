@@ -94,6 +94,9 @@ test:
       packages:
         - curl
   pipeline:
+    - uses: python/import
+      with:
+        imports: from ambassador import Version
     - uses: test/kwok/cluster
     - runs: |
         /usr/bin/entrypoint.sh &
