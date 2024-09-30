@@ -26,7 +26,7 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 6e2ca35c11d124da26df8dd029c33954960b15ae
 
-  # Go binaries
+  # # Go binaries
   - uses: go/build
     with:
       packages: ./cmd/apiext
@@ -56,12 +56,18 @@ pipeline:
     runs: |
       make python/ambassador.version
 
-      # Install Python dependencies
-      python3 -m venv venv
-      venv/bin/python3 -m pip install --upgrade pip
-      ./venv/bin/pip install -r python/requirements.txt --root=${{targets.contextdir}} --prefix=/usr
-      ./venv/bin/pip install -r python/requirements-dev.txt --root=${{targets.contextdir}} --prefix=/usr
-      ./venv/bin/pip install -e python --root=${{targets.contextdir}} --prefix=/usr
+      # Recommendation is to use the host pip instead of using venv.
+      # Pip will complain about being run as root - this disables that warning.
+      export PIP_ROOT_USER_ACTION=ignore
+
+      # Install build time dependencies.
+      pip install -r python/requirements.txt
+      pip install -r python/requirements-dev.txt
+
+      # Install to target dir.
+      # Ignore installed packages, since this looks at the builder host packages, when we're trying to install
+      # the necessary packages into the target directory.
+      pip install --root ${{targets.contextdir}} --ignore-installed -r python/requirements.txt
 
       # Install Emissary Python package
       cd python
@@ -96,3 +102,4 @@ test:
         sleep 10
 
         curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
+        curl -i http://127.0.0.1:8004/ambassador/v0/check_ready
