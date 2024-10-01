@@ -9,6 +9,7 @@ package:
     runtime:
       - datawire-envoy-privileged
       - git
+      - py3-ambassador
 
 vars:
   py-pkg: ambassador
@@ -65,7 +66,7 @@ pipeline:
 subpackages:
   - range: py-versions
     name: py${{range.key}}-${{vars.py-pkg}}
-    description: python${{range.key}} version of ${{vars.py-pkg}}
+    description: python${{range.key}} version of emissary
     dependencies:
       provider-priority: ${{range.value}}
       provides:
@@ -99,23 +100,8 @@ subpackages:
       pipeline:
         - uses: python/import
           with:
-            python: python3.10
-            import: from ambassador import Version
-
-  - name: py3-supported-${{vars.py-pkg}}
-    description: meta package providing ${{vars.py-pkg}} for supported python versions.
-    dependencies:
-      runtime:
-        - py3.10-${{vars.py-pkg}}
-        - py3.11-${{vars.py-pkg}}
-        - py3.12-${{vars.py-pkg}}
-        - py3.13-${{vars.py-pkg}}
-    test:
-      pipeline:
-        - uses: python/import
-          with:
-            python: python3.10
-            import: from ambassador import Version
+            python: python${{range.key}}
+            imports: from ambassador import Version
 
   - name: ${{package.name}}-oci-entrypoint
     description: Entrypoint for ${{package.name}}
@@ -124,7 +110,8 @@ subpackages:
         - emissary
     pipeline:
       - runs: |
-          cp -p entrypoint.sh ${{targets.contextdir}}/usr/bin/entrypoint.sh
+          mkdir -p ${{targets.contextdir}}/usr/bin/
+          cp -p python/entrypoint.sh ${{targets.contextdir}}/usr/bin/entrypoint.sh
           chmod +x ${{targets.contextdir}}/usr/bin/entrypoint.sh
     test:
       pipeline:
@@ -146,17 +133,26 @@ test:
     contents:
       packages:
         - curl
-        - py3-ambassador
+        - emissary
+        - emissary-oci-entrypoint
   pipeline:
     - uses: python/import
       with:
         imports: from ambassador import Version
     - uses: test/kwok/cluster
-    - runs: |
-        /usr/bin/entrypoint.sh &
+    - name: "Test entrypoint"
+      uses: test/daemon-check-output
+      with:
+        start: /usr/bin/entrypoint.sh
+        timeout: "30"
+        expected_output: "started command"
+        # Can't use default error string set because logs will print error messages complaining it's not running in a pod.
+        error_strings: |
+          FAIL
+          FATAL
+        # Need to wait for the server to start up before we can check if it's alive.
+        post: |
+          sleep 10
 
-        # Wait for server to come up
-        sleep 10
-
-        curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
-        curl -i http://127.0.0.1:8004/ambassador/v0/check_ready
+          curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
+          curl -i http://127.0.0.1:8004/ambassador/v0/check_ready
