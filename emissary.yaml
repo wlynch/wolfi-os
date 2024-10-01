@@ -7,7 +7,7 @@ package:
     - license: Apache-2.0
   dependencies:
     runtime:
-      - datawire-envoy-privileged
+      - datawire-envoy
       - git
       - py3-ambassador
 
@@ -38,6 +38,9 @@ pipeline:
       expected-commit: 6e2ca35c11d124da26df8dd029c33954960b15ae
 
   # Go binaries
+  - uses: go/bump
+    with:
+      deps: golang.org/x/net@v0.23.0 google.golang.org/protobuf@v1.33.0 k8s.io/kubernetes@v1.28.12 k8s.io/apiserver@v0.28.12
   - uses: go/build
     with:
       packages: ./cmd/apiext
@@ -72,7 +75,8 @@ subpackages:
       provides:
         - py3-${{vars.py-pkg}}
     pipeline:
-      - runs: |
+      - name: "Install dependencies"
+        runs: |
           # Recommendation is to use the host pip instead of using venv.
           # Pip will complain about being run as root - this disables that warning.
           export PIP_ROOT_USER_ACTION=ignore
@@ -82,6 +86,7 @@ subpackages:
           # the necessary packages into the target directory.
           python${{range.key}} -m pip install --ignore-installed --prefix=/usr --root=${{targets.contextdir}} -r python/requirements.txt
 
+      - runs: |
           # Generate version file - this static file is read by programs to provide version information in logs.
           # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/python/ambassador/VERSION.py#L26
           make python/ambassador.version
@@ -95,7 +100,22 @@ subpackages:
           # This contains a set of HTML templates used by the Python code, but is read relative to the module.
           # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/python/ambassador_diag/diagd.py#L603
           cp -a templates ${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages/templates
+
+      - name: "Bump dependencies"
+        runs: |
+          python${{range.key}} -m pip install --ignore-installed --prefix=/usr --root=${{targets.contextdir}} --upgrade \
+            Jinja2==3.1.3 \
+            certifi==2024.07.04 \
+            gunicorn==22.0.0 \
+            idna==3.7 \
+            orjson==3.9.15 \
+            requests==2.32.0 \
+            setuptools==70.0.0 \
+            urllib3==1.26.19 \
+            Werkzeug==3.0.3
+
       - uses: strip
+
     test:
       pipeline:
         - uses: python/import
