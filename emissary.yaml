@@ -7,11 +7,9 @@ package:
     - license: Apache-2.0
   dependencies:
     runtime:
-      - datawire-envoy
+      - datawire-envoy-privileged
       - git
       - py3-ambassador
-      - python3
-      #- py3-setuptools
 
 vars:
   py-pkg: ambassador
@@ -21,8 +19,8 @@ data:
     items:
       3.10: "310"
       3.11: "311"
-      # 3.12: "312"
-      # 3.13: "300"
+      3.12: "312"
+      3.13: "300"
 
 environment:
   contents:
@@ -31,7 +29,6 @@ environment:
       - libcap-utils
       - py3-supported-pip
       - rust
-      #- py3-setuptools
 
 pipeline:
   - uses: git-checkout
@@ -44,6 +41,7 @@ pipeline:
   - uses: go/bump
     with:
       deps: golang.org/x/net@v0.23.0 google.golang.org/protobuf@v1.33.0 k8s.io/kubernetes@v1.28.12 k8s.io/apiserver@v0.28.12
+
   - uses: go/build
     with:
       packages: ./cmd/apiext
@@ -87,34 +85,35 @@ subpackages:
           # Install to target dir.
           # Ignore installed packages, since this looks at the builder host packages, when we're trying to install
           # the necessary packages into the target directory.
-          export PYTHONPATH=${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages
-          python${{range.key}} -m pip install --ignore-installed --prefix=/usr --root=${{targets.contextdir}} -r python/requirements.txt
-
+          python${{range.key}} -m pip install --no-cache-dir --ignore-installed --prefix=/usr --root=${{targets.contextdir}} -r python/requirements.txt
       - name: "Bump dependencies"
         runs: |
+          # We're not 100% sure why this is necessary, but it seems to be needed to point pip -U at the right location for package upgrades.
           export PYTHONPATH=${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages
 
-          # This needs to be ran on the host, so that it matches the requirements.txt.
-
-          python${{range.key}} -m pip install --ignore-installed --upgrade setuptools==70.0.0
-
-          # We're not 100% sure why this is necessary, but it seems to be needed to point pip -U at the right location for package upgrades.
-
           # Bump the dependencies in the targetdir.
-          python${{range.key}} -m pip install --prefix=/usr --root=${{targets.contextdir}} --upgrade \
+          python${{range.key}} -m pip install --no-cache-dir --prefix=/usr --root=${{targets.contextdir}} --upgrade \
             Jinja2==3.1.4 \
             certifi==2024.07.04 \
             gunicorn==22.0.0 \
             idna==3.7 \
             orjson==3.9.15 \
             requests==2.32.0 \
-            setuptools==70.0.0 \
             urllib3==1.26.19 \
             Werkzeug==3.0.3
 
-          # We need to re-write the requirements file so that the next setup.py step will use the bumped versions.
-          python${{range.key}} -m pip freeze --all > python/requirements.txt
+          # The command above won't actually install setuptools (we think because it's already installed on the host at a higher version).
+          # We need --ignore-installed in order to force the installation of setuptools. Without it, pip only installs it for 1 version of python.
+          # I don't know why this is necessary, but it is (if we figure out a better way to do this, we should).
+          #
+          # We can't use --ignore-installed for the list above, because it won't remove the old versions of the packages and the scanners will
+          # complain about the old versions being present.
+          # We also need to run rm -rf existing setuptools first because of this, because of the weird "pip only installs 1 version" behavior described above.
+          rm -rf ${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages/setuptools*
+          python${{range.key}} -m pip install --no-cache-dir --prefix=/usr --root=${{targets.contextdir}} --ignore-installed --upgrade setuptools==70.0.0
 
+          # We need to re-write the requirements file so that the next setup.py step will use the bumped versions.
+          python${{range.key}} -m pip freeze > python/requirements.txt
       - runs: |
           # Generate version file - this static file is read by programs to provide version information in logs.
           # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/python/ambassador/VERSION.py#L26
@@ -129,9 +128,7 @@ subpackages:
           # This contains a set of HTML templates used by the Python code, but is read relative to the module.
           # See https://github.com/emissary-ingress/emissary/blob/ac2dc64c6621cd8ec5617f3328544364bdd3fb01/python/ambassador_diag/diagd.py#L603
           cp -a templates ${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages/templates
-
       - uses: strip
-
     test:
       pipeline:
         - uses: python/import
