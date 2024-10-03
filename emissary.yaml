@@ -10,6 +10,8 @@ package:
       - datawire-envoy
       - git
       - py3-ambassador
+      - python3
+      #- py3-setuptools
 
 vars:
   py-pkg: ambassador
@@ -19,8 +21,8 @@ data:
     items:
       3.10: "310"
       3.11: "311"
-      3.12: "312"
-      3.13: "300"
+      # 3.12: "312"
+      # 3.13: "300"
 
 environment:
   contents:
@@ -29,7 +31,7 @@ environment:
       - libcap-utils
       - py3-supported-pip
       - rust
-      - py3-setuptools
+      #- py3-setuptools
 
 pipeline:
   - uses: git-checkout
@@ -85,15 +87,18 @@ subpackages:
           # Install to target dir.
           # Ignore installed packages, since this looks at the builder host packages, when we're trying to install
           # the necessary packages into the target directory.
+          export PYTHONPATH=${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages
           python${{range.key}} -m pip install --ignore-installed --prefix=/usr --root=${{targets.contextdir}} -r python/requirements.txt
 
       - name: "Bump dependencies"
         runs: |
+          export PYTHONPATH=${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages
+
           # This needs to be ran on the host, so that it matches the requirements.txt.
-          python${{range.key}} -m pip install --upgrade setuptools==70.0.0
+
+          python${{range.key}} -m pip install --ignore-installed --upgrade setuptools==70.0.0
 
           # We're not 100% sure why this is necessary, but it seems to be needed to point pip -U at the right location for package upgrades.
-          export PYTHONPATH=${{targets.contextdir}}/usr/lib/python${{range.key}}/site-packages
 
           # Bump the dependencies in the targetdir.
           python${{range.key}} -m pip install --prefix=/usr --root=${{targets.contextdir}} --upgrade \
@@ -108,7 +113,7 @@ subpackages:
             Werkzeug==3.0.3
 
           # We need to re-write the requirements file so that the next setup.py step will use the bumped versions.
-          python${{range.key}} -m pip freeze > python/requirements.txt
+          python${{range.key}} -m pip freeze --all > python/requirements.txt
 
       - runs: |
           # Generate version file - this static file is read by programs to provide version information in logs.
@@ -168,27 +173,19 @@ test:
         - emissary-oci-entrypoint
   pipeline:
     - uses: test/kwok/cluster
-    # - name: "Test entrypoint"
-    #   uses: test/daemon-check-output
-    #   with:
-    #     start: /usr/bin/entrypoint.sh
-    #     timeout: "30"
-    #     expected_output: "started command"
-    #     # Can't use default error string set because logs will print error messages complaining it's not running in a pod.
-    #     error_strings: |
-    #       FAIL
-    #       FATAL
-    #     # Need to wait for the server to start up before we can check if it's alive.
-    #     post: |
-    #       sleep 10
+    - name: "Test entrypoint"
+      uses: test/daemon-check-output
+      with:
+        start: /usr/bin/entrypoint.sh
+        timeout: "30"
+        expected_output: "started command"
+        # Can't use default error string set because logs will print error messages complaining it's not running in a pod.
+        error_strings: |
+          FAIL
+          FATAL
+        # Need to wait for the server to start up before we can check if it's alive.
+        post: |
+          sleep 10
 
-    #       curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
-    #       curl -i http://127.0.0.1:8004/ambassador/v0/check_ready
-
-    - name: "Test"
-      runs: |
-        /usr/bin/entrypoint.sh &
-        sleep 10
-
-        curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
-        curl -i http://127.0.0.1:8004/ambassador/v0/check_ready
+          curl -i http://127.0.0.1:8004/ambassador/v0/check_alive
+          curl -i http://127.0.0.1:8004/ambassador/v0/check_ready
